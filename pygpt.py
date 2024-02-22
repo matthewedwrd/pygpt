@@ -2,6 +2,7 @@ import argparse
 import random
 import numpy
 import torch
+import os
 
 device = None
 
@@ -122,6 +123,17 @@ def get_batch(source, i, block_size):
 	target = source[:, i+1:i+1+seq_len]
 	return data, target
 
+def save_model_and_mappings(model, stoi, itos, filename):
+	state_dict = model.state_dict()
+	data = {"state_dict": state_dict, "stoi": stoi, "itos": itos}
+	torch.save(data, filename)
+
+def load_model_and_mappings(filename):
+	data = torch.load(filename)
+	model = BigramLanguageModel(len(data["stoi"]))
+	model.load_state_dict(data["state_dict"])
+	return model, data["stoi"], data["itos"]
+
 def main():
 	argument_parser = argparse.ArgumentParser()
 	argument_parser.add_argument("-d", "--driver", choices=["cuda", "cpu"], help="What should PyGPT use to run?")
@@ -168,19 +180,15 @@ def main():
 					_, val_loss = model(val_inputs, val_targets)
 					print(f"ITERATION: {i}, TRAINING LOSS: {loss.item():.4f}, VALIDATION LOSS: {val_loss.item():.4f}")
 
-		torch.save(model.state_dict(), 'model.pth')
+		save_model_and_mappings(model, stoi, itos, "model.pth")
 		print("TRAINING FINISHED!")
-	elif arguments.mode == "chat":
-		text = None
-		with open("input.txt", "r", encoding="utf-8") as file:
-			text = file.read()
-		
-		chars = sorted(list(set(text)))
-		stoi = {ch: i for i, ch in enumerate(chars)}
-		itos = {i: ch for i, ch in enumerate(chars)}
 
-		model = BigramLanguageModel(len(stoi)).to(device)
-		model.load_state_dict(torch.load('model.pth'))
+	elif arguments.mode == "chat":
+		if not os.path.exists("model.pth"):
+			print("Model and mappings file not found. Please train the model first.")
+			return
+
+		model, stoi, itos = load_model_and_mappings("model.pth")
 		model.eval()
 
 		conversation_history = []
@@ -199,6 +207,7 @@ def main():
 			
 			print(f"BOT: {response}")
 			conversation_history = conversation_history[-2 * configuration["context_window_size"]:]
+
 
 if __name__ == "__main__":
 	main()
